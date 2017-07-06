@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 2.8)
+cmake_minimum_required(VERSION 3.8)
 
 project(sgm_demo)
 
@@ -6,9 +6,9 @@ set(CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
 
 message(STATUS ${CMAKE_MODULE_PATH})
 
-FIND_PACKAGE(CUDA  REQUIRED)
+FIND_PACKAGE(CUDA REQUIRED)
 
-find_package(OpenCV REQUIRED core) # dammy 
+find_package(OpenCV REQUIRED core) # dummy
 if(OpenCV_VERSION VERSION_LESS 3.0) 
 	find_package(OpenCV REQUIRED core highgui imgproc)  # 2.x
 else()

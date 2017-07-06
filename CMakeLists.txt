@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 2.8)
+cmake_minimum_required(VERSION 3.8)
 
 set(CUDA_ARCH "-arch=sm_50" CACHE STRING "Value of the NVCC -arch option.")
 
@@ -18,6 +18,8 @@ add_subdirectory(src)
 
 add_subdirectory(sample/image)
 add_subdirectory(sample/movie)
+
+add_subdirectory(sample/camera)
 
 if(ENABLE_ZED_DEMO)
 	add_subdirectory(sample/zed)
