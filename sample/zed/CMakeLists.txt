@@ -22,8 +22,8 @@ find_package(GLFW REQUIRED)
 include_directories(../../include)
 include_directories(${CUDA_INCLUDE_DIRS})
 include_directories(${OpenCV_INCLUDE_DIRS})
-include_directories(${GLEW_INCLUDE_DIRS})
-include_directories(${GLFW_INCLUDE_DIRS})
+include_directories(${GLEW_INCLUDE_DIR})
+include_directories(${GLFW_INCLUDE_DIR})
 
 include_directories(${ZED_SDK_INCLUDE_DIR})
 
