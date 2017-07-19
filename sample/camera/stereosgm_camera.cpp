@@ -28,9 +28,14 @@ limitations under the License.
 
 int main(int argc, char* argv[])
 {
+    bool isToFlipRightImage = (argc >= 2) && strcmp(argv[1], "--flipRight");
+    if (isToFlipRightImage) { std::cout << "Flip right camera image horizontally." << std::endl; }
+    const int horizontalFlipCode = 1;
+
     cv::VideoCapture leftCapture = cv::VideoCapture(0);
     cv::VideoCapture rightCapture = cv::VideoCapture(1);
     cv::Mat leftColor, rightColor;
+    cv::Mat rightColorFlipped;
     cv::Mat left, right;
 
     bool hr = leftCapture.read(leftColor);
@@ -45,7 +50,16 @@ int main(int argc, char* argv[])
     }
 
     cv::cvtColor(leftColor, left, CV_BGR2GRAY);
-    cv::cvtColor(rightColor, right, CV_BGR2GRAY);
+    if (isToFlipRightImage)
+    {
+        cv::flip(rightColor, rightColorFlipped, horizontalFlipCode);
+        cv::cvtColor(rightColorFlipped, right, CV_BGR2GRAY);
+    }
+    else
+    {
+        cv::cvtColor(rightColor, right, CV_BGR2GRAY);
+    }
+
     int bits = 0;
     switch (left.type()) {
     case CV_8UC1: bits = 8; break;
@@ -88,7 +102,15 @@ int main(int argc, char* argv[])
             std::exit(EXIT_FAILURE);
         }
         cv::cvtColor(leftColor, left, CV_BGR2GRAY);
-        cv::cvtColor(rightColor, right, CV_BGR2GRAY);
+        if (isToFlipRightImage)
+        {
+            cv::flip(rightColor, rightColorFlipped, horizontalFlipCode);
+            cv::cvtColor(rightColorFlipped, right, CV_BGR2GRAY);
+        }
+        else
+        {
+            cv::cvtColor(rightColor, right, CV_BGR2GRAY);
+        }
 
 #if _DEBUG
         cv::imshow("left", left);
