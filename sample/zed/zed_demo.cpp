@@ -17,88 +17,247 @@ limitations under the License.
 #include <stdlib.h>
 #include <iostream>
 #include <string>
+
 #include <opencv2/core/core.hpp>
 #include <opencv2/highgui/highgui.hpp>
 #include <opencv2/imgproc/imgproc.hpp>
 
 #include <nppi.h>
-
-#include <zed/Camera.hpp>
-
+#include <GL/glew.h>
 #include <libsgm.h>
-
 #include "demo.h"
 #include "renderer.h"
 
-int main(int argc, char* argv[]) {	
-	
-	int disp_size = 64;
-	const int bits = 8;
-
-	if (argc >= 2) {
-		disp_size = atoi(argv[1]);
-	}
-	
-	// init zed cam
-	auto cap = new sl::zed::Camera(sl::zed::ZEDResolution_mode::VGA);
-	sl::zed::ERRCODE err = cap->init(sl::zed::MODE::PERFORMANCE, 0, true);
-	if (err != sl::zed::ERRCODE::SUCCESS) {
-		std::cout << sl::zed::errcode2str(err) << std::endl;
-		exit(EXIT_FAILURE);
-	}
-
-	int width = cap->getImageSize().width;
-	int height = cap->getImageSize().height;
-
-	sgm::StereoSGM ssgm(width, height, disp_size, 8, 16, sgm::EXECUTE_INOUT_CUDA2CUDA);
+#include <sl/Camera.hpp>
 
 
-	SGMDemo demo(width, height);
-	if (demo.init()) {
-		printf("fail to init SGM Demo\n");
-		std::exit(EXIT_FAILURE);
-	}
+class DepthEstimationFromZedCameraBase
+{
+public:
+    sl::InitParameters initParameters;
+    sl::RuntimeParameters runtimeParameters;
+    sl::Camera zed;
+    sl::ERROR_CODE err;
 
-	Renderer renderer(width, height);
+    bool isToQuit;
+    sl::Mat left_zm;
+    sl::Mat right_zm;
 
-	uint16_t* d_output_buffer = NULL;
-	uint8_t* d_input_left = NULL;
-	uint8_t* d_input_right = NULL;
-	cudaMalloc((void**)&d_input_left, width * height);
-	cudaMalloc((void**)&d_input_right, width * height);
+public:
+    virtual bool Initialize() = 0;
+    virtual bool ProcessOneFrame() = 0;
+    virtual void Close() = 0;
+};
 
-	const NppiSize roi = { width, height };
 
-	cv::Mat h_input_left(height, width, CV_8UC1);
 
-	while (!demo.should_close()) {
-		cap->grab(sl::zed::SENSING_MODE::FULL, false, false);
+class DepthEstimationByZedSdk : public DepthEstimationFromZedCameraBase
+{
+public:
+    sl::Mat depth_zm;
 
-		sl::zed::Mat left_zm = cap->retrieveImage_gpu(sl::zed::SIDE::LEFT);
-		sl::zed::Mat right_zm = cap->retrieveImage_gpu(sl::zed::SIDE::RIGHT);
+public:
+    DepthEstimationByZedSdk()
+    {
+        isToQuit = false;
 
-		nppiRGBToGray_8u_AC4C1R(left_zm.data, width * 4, d_input_left, width, roi);
-		nppiRGBToGray_8u_AC4C1R(right_zm.data, width * 4, d_input_right, width, roi);
+        initParameters.coordinate_units = sl::UNIT_METER;
+        initParameters.coordinate_system = sl::COORDINATE_SYSTEM_RIGHT_HANDED_Y_UP;
 
-		ssgm.execute(d_input_left, d_input_right, (void**)&d_output_buffer);
+        //initParameters.depth_mode = sl::DEPTH_MODE_PERFORMANCE;
+        initParameters.depth_mode = sl::DEPTH_MODE_QUALITY;
+        //runtimeParameters.sensing_mode = sl::SENSING_MODE_STANDARD;
+        runtimeParameters.sensing_mode = sl::SENSING_MODE_FILL;
+        runtimeParameters.enable_depth = true;
+        runtimeParameters.enable_point_cloud = true;
+        runtimeParameters.move_point_cloud_to_world_frame = true;
 
-		switch (demo.get_flag()) {
-		case 0: 
-			cudaMemcpy(h_input_left.data, d_input_left, width * height, cudaMemcpyDeviceToHost);
-			renderer.render_input((uint8_t*)h_input_left.data); 
-			break;
-		case 1: 
-			renderer.render_disparity(d_output_buffer, disp_size);
-			break;
-		case 2: 
-			renderer.render_disparity_color(d_output_buffer, disp_size);
-			break;
-		}
+        if (false)
+        {
+            initParameters.camera_resolution = sl::RESOLUTION::RESOLUTION_HD720;
+            initParameters.camera_fps = 60;
+        }
+        else
+        {
+            initParameters.svo_input_filename.set("C:\\Users\\KISHIMOTO\\Documents\\ZED\\HD720_SN13619_10-42-37.svo");
+            //initParameters.svo_real_time_mode = true;
+        }
+    }
 
-		demo.swap_buffer();
-	}
+    bool Initialize()
+    {
+        err = zed.open(initParameters);
+        if (err != sl::SUCCESS) { return false; }
+        return true;
+    }
 
-	cudaFree(d_input_left);
-	cudaFree(d_input_right);
-	delete cap;
+    bool ProcessOneFrame()
+    {
+        err = zed.grab(runtimeParameters);
+        if (err == sl::ERROR_CODE_NOT_A_NEW_FRAME) { return false; }
+        err = zed.retrieveImage(left_zm, sl::VIEW_LEFT, sl::MEM_CPU);
+        err = zed.retrieveImage(right_zm, sl::VIEW_RIGHT, sl::MEM_CPU);
+        err = zed.retrieveImage(depth_zm, sl::VIEW_DEPTH, sl::MEM_CPU);
+        cv::imshow("Left", cv::Mat(left_zm.getHeight(), left_zm.getWidth(), CV_8UC4, left_zm.getPtr<sl::uchar1>(sl::MEM_CPU)));
+        cv::imshow("Right", cv::Mat(right_zm.getHeight(), right_zm.getWidth(), CV_8UC4, right_zm.getPtr<sl::uchar1>(sl::MEM_CPU)));
+        // NOTE: runtimeParameters.enable_depth must be true!
+        cv::Mat depthImage = cv::Mat(depth_zm.getHeight(), depth_zm.getWidth(), CV_8UC4, depth_zm.getPtr<sl::uchar1>(sl::MEM_CPU));
+        cv::imshow("Depth", depthImage);
+        cv::waitKey(1);
+        return true;
+    }
+
+    void Close()
+    {
+        isToQuit = true;
+        zed.close();
+        left_zm.free(sl::MEM_CPU);
+        right_zm.free(sl::MEM_CPU);
+        depth_zm.free(sl::MEM_CPU);
+    }
+};
+
+
+
+class DepthEstimationByLibSgm : public DepthEstimationFromZedCameraBase
+{
+public:
+    int disp_size;
+
+public:
+    NppiSize roi;
+    sgm::StereoSGM* ssgm;
+    SGMDemo* demo;
+    Renderer* renderer;
+    cv::Mat* h_input_left;
+    uint16_t* d_output_buffer;
+    uint8_t* d_input_left;
+    uint8_t* d_input_right;
+
+public:
+    DepthEstimationByLibSgm()
+    {
+        isToQuit = false;
+
+        disp_size = 64;
+        ssgm = nullptr;
+        demo = nullptr;
+        renderer = nullptr;
+
+        h_input_left = nullptr;
+        d_output_buffer = nullptr;
+        d_input_left = nullptr;
+        d_input_right = nullptr;
+
+
+        initParameters.coordinate_units = sl::UNIT_METER;
+        initParameters.coordinate_system = sl::COORDINATE_SYSTEM_RIGHT_HANDED_Y_UP;
+
+        //initParameters.depth_mode = sl::DEPTH_MODE_PERFORMANCE;
+        initParameters.depth_mode = sl::DEPTH_MODE_QUALITY;
+        //runtimeParameters.sensing_mode = sl::SENSING_MODE_STANDARD;
+        runtimeParameters.sensing_mode = sl::SENSING_MODE_FILL;
+        runtimeParameters.enable_depth = false;
+        runtimeParameters.enable_point_cloud = false;
+        runtimeParameters.move_point_cloud_to_world_frame = false;
+
+        if (false)
+        {
+            initParameters.camera_resolution = sl::RESOLUTION::RESOLUTION_HD720;
+            initParameters.camera_fps = 60;
+        }
+        else
+        {
+            initParameters.svo_input_filename.set("C:\\Users\\KISHIMOTO\\Documents\\ZED\\HD720_SN13619_10-42-37.svo");
+            //initParameters.svo_real_time_mode = true;
+        }
+    }
+
+    bool Initialize()
+    {
+        err = zed.open(initParameters);
+        if (err != sl::SUCCESS) { return false; }
+        roi.width = zed.getResolution().width;
+        roi.height = zed.getResolution().height;
+        ssgm = new sgm::StereoSGM(roi.width, roi.height, disp_size, 8, 16, sgm::EXECUTE_INOUT_CUDA2CUDA);
+        demo = new SGMDemo(roi.width, roi.height);
+        if (demo->init())
+        {
+            printf("fail to init SGM Demo\n");
+            Close();
+            std::exit(EXIT_FAILURE);
+        }
+        renderer = new Renderer(roi.width, roi.height);
+        cudaMalloc((void**)&d_input_left, roi.width *roi.height);
+        cudaMalloc((void**)&d_input_right, roi.width *roi.height);
+        h_input_left = new cv::Mat(roi.height, roi.width, CV_8UC1);
+        return true;
+    }
+
+    bool ProcessOneFrame()
+    {
+        if (demo->should_close()) { return false; }
+
+        err = zed.grab(runtimeParameters);
+        if (err == sl::ERROR_CODE_NOT_A_NEW_FRAME) { return false; }
+        err = zed.retrieveImage(left_zm, sl::VIEW_LEFT, sl::MEM_GPU);
+        err = zed.retrieveImage(right_zm, sl::VIEW_RIGHT, sl::MEM_GPU);
+        nppiRGBToGray_8u_AC4C1R((const Npp8u*)left_zm.getPtr<sl::uchar1>(sl::MEM_GPU), roi.width * 4, d_input_left, roi.width, roi);
+        nppiRGBToGray_8u_AC4C1R((const Npp8u*)right_zm.getPtr<sl::uchar1>(sl::MEM_GPU), roi.width * 4, d_input_right, roi.width, roi);
+
+        ssgm->execute(d_input_left, d_input_right, (void**)&d_output_buffer);
+
+        switch (demo->get_flag())
+        {
+        case 0:
+            cudaMemcpy(h_input_left->data, d_input_left, roi.width * roi.height, cudaMemcpyDeviceToHost);
+            renderer->render_input((uint8_t*)h_input_left->data);
+            break;
+        case 1:
+            renderer->render_disparity(d_output_buffer, disp_size);
+            break;
+        case 2:
+            renderer->render_disparity_color(d_output_buffer, disp_size);
+            break;
+        }
+
+        demo->swap_buffer();
+        return true;
+    }
+
+    void Close()
+    {
+        isToQuit = true;
+        zed.close();
+        if (ssgm != nullptr) { delete ssgm; ssgm = nullptr; }
+        if (demo != nullptr) { delete demo; demo = nullptr; }
+        if (renderer != nullptr) { delete renderer; renderer = nullptr; }
+        if (h_input_left != nullptr) { delete h_input_left; h_input_left = nullptr; }
+        left_zm.free(sl::MEM_GPU);
+        right_zm.free(sl::MEM_GPU);
+        cudaFree(d_input_left);
+        cudaFree(d_input_right);
+    }
+};
+
+
+
+int main(int argc, char* argv[])
+{
+    DepthEstimationFromZedCameraBase* depthEstimation;
+    depthEstimation = new DepthEstimationByZedSdk();
+    //depthEstimation = new DepthEstimationByLibSgm();
+
+    if (depthEstimation->Initialize() == false)
+    {
+        std::cout << sl::errorCode2str(depthEstimation->err) << std::endl;
+        exit(EXIT_FAILURE);
+    }
+    while (!depthEstimation->isToQuit)
+    {
+        if (depthEstimation->ProcessOneFrame() == false) { depthEstimation->isToQuit = true; break; }
+    }
+    depthEstimation->Close();
+
+    return 0;
 }

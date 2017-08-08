@@ -112,7 +112,7 @@ int main(int argc, char* argv[])
             cv::cvtColor(rightColor, right, CV_BGR2GRAY);
         }
 
-#if _DEBUG
+#if _DEBUG || 1
         cv::imshow("left", left);
         cv::imshow("right", right);
 #endif
