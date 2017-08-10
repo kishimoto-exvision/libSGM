@@ -196,9 +196,10 @@ public:
         roi.height = zed.getResolution().height;
 
         camInfo = zed.getCameraInformation();
+        auto&& calibParams = camInfo.calibration_parameters_raw;
 
 
-        int i, j;
+        int i;
         // input
         cv::Mat M1(3, 3, CV_64FC1);
         cv::Mat M2(3, 3, CV_64FC1);
@@ -211,27 +212,27 @@ public:
         cv::Mat R1, P1, R2, P2, Q;
         cv::Rect validRoi[2];
 
-        M1.at<double>(0, 0) = camInfo.calibration_parameters_raw.left_cam.fx;
-        M1.at<double>(1, 1) = camInfo.calibration_parameters_raw.left_cam.fy;
-        M1.at<double>(0, 2) = camInfo.calibration_parameters_raw.left_cam.cx;
-        M1.at<double>(1, 2) = camInfo.calibration_parameters_raw.left_cam.cy;
+        M1.at<double>(0, 0) = calibParams.left_cam.fx;
+        M1.at<double>(1, 1) = calibParams.left_cam.fy;
+        M1.at<double>(0, 2) = calibParams.left_cam.cx;
+        M1.at<double>(1, 2) = calibParams.left_cam.cy;
         M1.at<double>(2, 2) = 1.0;
-        for (i = 0; i < 5; i++) { D1.at<double>(0, i) = camInfo.calibration_parameters_raw.left_cam.disto[i]; }
+        for (i = 0; i < 5; i++) { D1.at<double>(0, i) = calibParams.left_cam.disto[i]; }
 
-        M2.at<double>(0, 0) = camInfo.calibration_parameters_raw.right_cam.fx;
-        M2.at<double>(1, 1) = camInfo.calibration_parameters_raw.right_cam.fy;
-        M2.at<double>(0, 2) = camInfo.calibration_parameters_raw.right_cam.cx;
-        M2.at<double>(1, 2) = camInfo.calibration_parameters_raw.right_cam.cy;
+        M2.at<double>(0, 0) = calibParams.right_cam.fx;
+        M2.at<double>(1, 1) = calibParams.right_cam.fy;
+        M2.at<double>(0, 2) = calibParams.right_cam.cx;
+        M2.at<double>(1, 2) = calibParams.right_cam.cy;
         M2.at<double>(2, 2) = 1.0;
-        for (i = 0; i < 5; i++) { D2.at<double>(0, i) = camInfo.calibration_parameters_raw.right_cam.disto[i]; }
+        for (i = 0; i < 5; i++) { D2.at<double>(0, i) = calibParams.right_cam.disto[i]; }
 
         //sl::float3 R; /*!< Rotation (using Rodrigues' transformation) between the two sensors. Defined as 'tilt', 'convergence' and 'roll'.*/
         cv::Mat tilt_convergence_roll(1, 3, CV_64FC1);
-        for (i = 0; i < 3; i++) { tilt_convergence_roll.at<double>(0, i) = camInfo.calibration_parameters_raw.R[i]; }
+        for (i = 0; i < 3; i++) { tilt_convergence_roll.at<double>(0, i) = calibParams.R[i]; }
         cv::Rodrigues(tilt_convergence_roll, R);
 
         //sl::float3 T; /*!< Translation between the two sensors. T.x is the distance between the two cameras (baseline) in the sl::UNIT chosen during sl::Camera::open (mm, cm, meters, inches...).*/
-        for (i = 0; i < 3; i++) { T.at<double>(i, 0) = camInfo.calibration_parameters_raw.T[i]; }
+        for (i = 0; i < 3; i++) { T.at<double>(i, 0) = calibParams.T[i]; }
 
         // exception occurs
         stereoRectify(M1, D1, M2, D2, img_size, R, T, R1, R2, P1, P2, Q, cv::CALIB_ZERO_DISPARITY, -1, img_size, &validRoi[0], &validRoi[1]);
@@ -292,17 +293,17 @@ public:
             cv::Mat right_gray_ocv;
             cv::cvtColor(left_ocv, left_gray_ocv, CV_BGRA2GRAY);
             cv::cvtColor(right_ocv, right_gray_ocv, CV_BGRA2GRAY);
-            if (false)
-            {
-                cv::imshow("LeftGray", left_gray_ocv);
-                cv::imshow("RightGray", right_gray_ocv);
-                cv::waitKey(1);
-            }
 
             switch (1)
             {
             case 1:
             {
+                if (false)
+                {
+                    cv::imshow("LeftGray", left_gray_ocv);
+                    cv::imshow("RightGray", right_gray_ocv);
+                    cv::waitKey(1);
+                }
                 ssgm->execute(left_gray_ocv.data, right_gray_ocv.data, (void**)&d_output_buffer);
                 break;
             }
@@ -314,6 +315,8 @@ public:
                 cv::bilateralFilter(right_gray_ocv, right_gray_bilateral_ocv, 7, 50, 150);
                 if (true)
                 {
+                    cv::imshow("LeftGray", left_gray_ocv);
+                    cv::imshow("RightGray", right_gray_ocv);
                     cv::imshow("LeftGrayBilateral", left_gray_bilateral_ocv);
                     cv::imshow("RightGrayBilateral", right_gray_bilateral_ocv);
                     cv::waitKey(1);
@@ -386,11 +389,12 @@ public:
 int main(int argc, char* argv[])
 {
     DepthEstimationFromZedCameraBase* depthEstimation;
-    depthEstimation = new DepthEstimationByZedSdk();
-    //depthEstimation = new DepthEstimationByLibSgm();
+    //depthEstimation = new DepthEstimationByZedSdk();
+    depthEstimation = new DepthEstimationByLibSgm();
 
     if (argc > 2) { depthEstimation->svoVideoFilePath = std::string(argv[1]); }
-    else { depthEstimation->svoVideoFilePath = "C:\\Users\\KISHIMOTO\\Documents\\ZED\\HD720_SN13619_10-42-37.svo"; }
+    else if (true) { depthEstimation->svoVideoFilePath = "C:\\Users\\KISHIMOTO\\Documents\\ZED\\HD720_SN13619_10-42-37.svo"; }
+    else { depthEstimation->svoVideoFilePath = ""; } // use camera 
 
     if (depthEstimation->Initialize() == false)
     {
